@@ -56,6 +56,7 @@ func (s *UserDataSuite) SetUpTest(c *gc.C) {
 		DNSSearchDomains: []string{"foo", "bar"},
 		GatewayAddress:   network.NewAddress("0.1.2.1"),
 		MACAddress:       "aa:bb:cc:dd:ee:f0",
+		MTU:              8317,
 	}, {
 		InterfaceName:    "any1",
 		CIDR:             "0.2.2.0/24",
@@ -94,6 +95,7 @@ iface lo inet loopback
 iface any0 inet static
   address 0.1.2.3/24
   gateway 0.1.2.1
+  mtu 8317
 
 iface any1 inet static
   address 0.2.2.4/24
@@ -121,6 +123,7 @@ bootcmd:
   iface any0 inet static
     address 0.1.2.3/24
     gateway 0.1.2.1
+    mtu 8317
 
   iface any1 inet static
     address 0.2.2.4/24
