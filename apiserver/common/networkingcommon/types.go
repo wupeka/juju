@@ -120,6 +120,10 @@ type NetworkBacking interface {
 
 	// ModelTag returns the tag of the model this state is associated to.
 	ModelTag() names.ModelTag
+
+	WatchSpacesSyncSettings() state.NotifyWatcher
+
+	RequestSpacesSync() error
 }
 
 func BackingSubnetToParamsSubnet(subnet BackingSubnet) params.Subnet {

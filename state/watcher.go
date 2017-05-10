@@ -1410,6 +1410,11 @@ func (st *State) WatchFilesystemAttachment(m names.MachineTag, f names.Filesyste
 	return newEntityWatcher(st, filesystemAttachmentsC, st.docID(id))
 }
 
+// WatchSpacesSyncSettings returns a watcher observing requests to resync spaces with provider
+func (st *State) WatchSpacesSyncSettings() NotifyWatcher {
+	return newEntityWatcher(st, settingsC, lastRequestedSpacesSyncKey)
+}
+
 // WatchConfigSettings returns a watcher for observing changes to the
 // unit's service configuration settings. The unit must have a charm URL
 // set before this method is called, and the returned watcher will be

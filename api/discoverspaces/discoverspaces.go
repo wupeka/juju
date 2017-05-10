@@ -7,8 +7,10 @@ import (
 	"github.com/juju/errors"
 
 	"github.com/juju/juju/api/base"
+	apiwatcher "github.com/juju/juju/api/watcher"
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/environs/config"
+	"github.com/juju/juju/watcher"
 )
 
 const discoverspacesFacade = "DiscoverSpaces"
@@ -76,3 +78,20 @@ func (api *API) ModelConfig() (*config.Config, error) {
 	}
 	return conf, nil
 }
+
+// WatchSpacesSyncSettings watches for requests to resync spaces with provider
+func (api *API) WatchSpacesSyncSettings() (watcher.NotifyWatcher, error) {
+	var result params.NotifyWatchResult
+	err := api.facade.FacadeCall("WatchSpacesSyncSettings", nil, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return newNotifyWatcher(api.facade.RawAPICaller(), result), nil
+}
+
+var newNotifyWatcher = apiwatcher.NewNotifyWatcher

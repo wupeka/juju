@@ -14,6 +14,7 @@ import (
 	"github.com/juju/juju/apiserver/params"
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/state/watcher"
 )
 
 // API implements the API used by the discoverspaces worker.
@@ -151,4 +152,27 @@ func (api *API) AddSubnets(args params.AddSubnetsParams) (params.ErrorResults, e
 // all given optional filters.
 func (api *API) ListSubnets(args params.SubnetsFilters) (results params.ListSubnetsResults, err error) {
 	return networkingcommon.ListSubnets(api.st, args)
+}
+
+// ResyncSpaces requests synchronization of spaces with provider
+func (api *API) ResyncSpaces() (err error) {
+	return api.st.RequestSpacesSync()
+}
+
+// WatchSpacesSyncSettings watches for requests to resync spaces with provider
+func (api *API) WatchSpacesSyncSettings() (params.NotifyWatchResult, error) {
+	err := common.ErrPerm
+	var watch state.NotifyWatcher
+	var result params.NotifyWatchResult
+
+	if api.authorizer.AuthController() {
+		watch = api.st.WatchSpacesSyncSettings()
+		if _, ok := <-watch.Changes(); ok {
+			result.NotifyWatcherId = api.resources.Register(watch)
+		} else {
+			err = watcher.EnsureErr(watch)
+		}
+	}
+	result.Error = common.ServerError(err)
+	return result, nil
 }

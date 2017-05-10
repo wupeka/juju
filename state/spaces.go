@@ -4,7 +4,10 @@
 package state
 
 import (
+	"time"
+
 	"github.com/juju/errors"
+	statetxn "github.com/juju/txn"
 	"gopkg.in/juju/names.v2"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -235,4 +238,69 @@ func (s *Space) Refresh() error {
 	}
 	s.doc = doc
 	return nil
+}
+
+const lastRequestedSpacesSyncKey = "lastRequestedSpacesSync"
+
+type lastRequestedSpacesSyncDoc struct {
+	RequestedSyncTime time.Time `bson:"requestedsynctime"`
+	TxnRevno          int64     `bson:"txn-revno"`
+}
+
+func (st *State) RequestSpacesSync() error {
+	settings, closer := st.db().GetCollection(settingsC)
+	defer closer()
+	now := time.Now()
+	buildTxn := func(attempt int) ([]txn.Op, error) {
+		var existingDoc lastRequestedSpacesSyncDoc
+		err := settings.Find(bson.D{{"_id", lastRequestedSpacesSyncKey}}).One(&existingDoc)
+		switch {
+		case err == mgo.ErrNotFound:
+			op := txn.Op{
+				C:      settingsC,
+				Id:     lastRequestedSpacesSyncKey,
+				Assert: txn.DocMissing,
+				Insert: &lastRequestedSpacesSyncDoc{
+					RequestedSyncTime: now,
+				},
+			}
+			return []txn.Op{op}, nil
+		case err != nil:
+			return nil, err
+		case existingDoc.RequestedSyncTime != now:
+			op := txn.Op{
+				C:  settingsC,
+				Id: lastRequestedSpacesSyncKey,
+				Assert: bson.D{{
+					"txn-revno", existingDoc.TxnRevno,
+				}},
+				Update: bson.D{{
+					"$set", bson.D{{"requestedsynctime", now}},
+				}},
+			}
+			return []txn.Op{op}, nil
+		default:
+			return nil, statetxn.ErrNoOperations
+		}
+	}
+	if err := st.run(buildTxn); err != nil {
+		return errors.Annotate(err, "cannot request spaces sync")
+	}
+	logger.Debugf("requesting spaces sync")
+	return nil
+}
+
+func (st *State) LastRequestedSpacesSync() (time.Time, error) {
+	settings, closer := st.db().GetCollection(settingsC)
+	defer closer()
+	epoch := time.Unix(0, 0)
+
+	var doc lastRequestedSpacesSyncDoc
+	err := settings.FindId(lastRequestedSpacesSyncKey).One(&doc)
+	if err == mgo.ErrNotFound {
+		return epoch, nil
+	} else if err != nil {
+		return epoch, errors.Errorf("Cannot fetch LastRequestedSpacesSync", err)
+	}
+	return doc.RequestedSyncTime, nil
 }

@@ -6,6 +6,7 @@ package state_test
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/juju/errors"
 	jc "github.com/juju/testing/checkers"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/juju/juju/network"
 	"github.com/juju/juju/state"
+	"github.com/juju/juju/state/testing"
 )
 
 type SpacesSuite struct {
@@ -558,4 +560,44 @@ func (s *SpacesSuite) TestRefreshFailsWithNotFoundWhenRemoved(c *gc.C) {
 
 	err := space.Refresh()
 	s.assertSpaceNotFoundError(c, err, "soon-removed")
+}
+
+func (s *SpacesSuite) TestResyncSpaces(c *gc.C) {
+	// If no sync was ever requested we should get epoch time
+	tZero, err := s.State.LastRequestedSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(tZero, jc.DeepEquals, time.Unix(0, 0))
+
+	// If we requested sync we should get time near to current
+	now := time.Now()
+	err = s.State.RequestSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	tOne, err := s.State.LastRequestedSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(tOne.Sub(now).Seconds(), jc.LessThan, 1.0)
+
+	// we haven't requested sync, time should not change
+	tTwo, err := s.State.LastRequestedSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(tOne, jc.DeepEquals, tTwo)
+
+	// we have requested sync, time should change
+	err = s.State.RequestSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	tThree, err := s.State.LastRequestedSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+	c.Assert(tThree.Sub(tTwo).Seconds(), jc.GreaterThan, 0.0)
+}
+
+func (s *SpacesSuite) TestWatchSpacesSyncSettings(c *gc.C) {
+	w := s.State.WatchSpacesSyncSettings()
+	defer testing.AssertStop(c, w)
+	wc := testing.NewNotifyWatcherC(c, s.State, w)
+	wc.AssertOneChange()
+
+	wc.AssertNoChange()
+	err := s.State.RequestSpacesSync()
+	c.Assert(err, jc.ErrorIsNil)
+
+	wc.AssertOneChange()
 }

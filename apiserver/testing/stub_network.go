@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/juju/testing"
 	"github.com/juju/utils"
@@ -21,6 +22,7 @@ import (
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/network"
 	providercommon "github.com/juju/juju/provider/common"
+	"github.com/juju/juju/state"
 	coretesting "github.com/juju/juju/testing"
 )
 
@@ -348,6 +350,8 @@ type StubBacking struct {
 	Zones   []providercommon.AvailabilityZone
 	Spaces  []networkingcommon.BackingSpace
 	Subnets []networkingcommon.BackingSubnet
+
+	SyncRequested time.Time
 }
 
 var _ networkingcommon.NetworkBacking = (*StubBacking)(nil)
@@ -523,6 +527,19 @@ func (sb *StubBacking) AddSpace(name string, providerId network.Id, subnets []st
 	}
 	fs := &FakeSpace{SpaceName: name, SubnetIds: subnets, Public: public}
 	sb.Spaces = append(sb.Spaces, fs)
+	return nil
+}
+
+func (sb *StubBacking) RequestSpacesSync() error {
+	sb.MethodCall(sb, "RequestSpacesSync")
+	if err := sb.NextErr(); err != nil {
+		return err
+	}
+	sb.SyncRequested = time.Now()
+	return nil
+}
+
+func (sb *StubBacking) WatchSpacesSyncSettings() state.NotifyWatcher {
 	return nil
 }
 
