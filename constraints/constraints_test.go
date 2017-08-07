@@ -313,19 +313,31 @@ var parseConstraintsTests = []struct {
 		err:     `bad "virt-type" constraint: already set`,
 	},
 
+	// "security-groups" in detail.
+	{
+		summary: "no security groups",
+		args:    []string{"security-groups="},
+	}, {}, {
+		summary: "single group",
+		args:    []string{"security-groups=group1"},
+	}, {
+		summary: "multiple security groups",
+		args:    []string{"security-groups=group1,group2"},
+	},
+
 	// Everything at once.
 	{
 		summary: "kitchen sink together",
 		args: []string{
 			"root-disk=8G mem=2T  arch=i386  cores=4096 cpu-power=9001 container=lxd " +
-				"tags=foo,bar spaces=space1,^space2 instance-type=foo",
+				"tags=foo,bar spaces=space1,^space2 instance-type=foo security-groups=group1,group2",
 			"virt-type=kvm"},
 	}, {
 		summary: "kitchen sink separately",
 		args: []string{
 			"root-disk=8G", "mem=2T", "cores=4096", "cpu-power=9001", "arch=armhf",
 			"container=lxd", "tags=foo,bar", "spaces=space1,^space2",
-			"instance-type=foo", "virt-type=kvm"},
+			"instance-type=foo", "virt-type=kvm", "security-groups=group1,group2"},
 	},
 }
 
@@ -462,6 +474,8 @@ func (s *ConstraintsSuite) TestIsEmpty(c *gc.C) {
 	con = constraints.MustParse("container=")
 	c.Check(&con, gc.Not(jc.Satisfies), constraints.IsEmpty)
 	con = constraints.MustParse("instance-type=")
+	c.Check(&con, gc.Not(jc.Satisfies), constraints.IsEmpty)
+	con = constraints.MustParse("security-groups=")
 	c.Check(&con, gc.Not(jc.Satisfies), constraints.IsEmpty)
 }
 

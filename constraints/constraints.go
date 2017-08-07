@@ -23,15 +23,16 @@ const (
 	Arch      = "arch"
 	Container = "container"
 	// cpuCores is an alias for Cores.
-	cpuCores     = "cpu-cores"
-	Cores        = "cores"
-	CpuPower     = "cpu-power"
-	Mem          = "mem"
-	RootDisk     = "root-disk"
-	Tags         = "tags"
-	InstanceType = "instance-type"
-	Spaces       = "spaces"
-	VirtType     = "virt-type"
+	cpuCores       = "cpu-cores"
+	Cores          = "cores"
+	CpuPower       = "cpu-power"
+	Mem            = "mem"
+	RootDisk       = "root-disk"
+	Tags           = "tags"
+	InstanceType   = "instance-type"
+	Spaces         = "spaces"
+	VirtType       = "virt-type"
+	SecurityGroups = "security-groups"
 )
 
 // Value describes a user's requirements of the hardware on which units
@@ -85,6 +86,10 @@ type Value struct {
 	// VirtType, if not nil or empty, indicates that a machine must run the named
 	// virtual type. Only valid for clouds with multi-hypervisor support.
 	VirtType *string `json:"virt-type,omitempty" yaml:"virt-type,omitempty"`
+
+	// SecurityGroups, if not nil or empty, indicates that a machine must be
+	// included in the specified security groups.
+	SecurityGroups *[]string `json:"security-groups,omitempty" yaml:"security-groups,omitempty"`
 }
 
 var rawAliases = map[string]string{
@@ -180,6 +185,11 @@ func (v *Value) HasVirtType() bool {
 	return v.VirtType != nil && *v.VirtType != ""
 }
 
+// HasVirtType returns true if the constraints.Value specifies an virtual type.
+func (v *Value) HasSecurityGroups() bool {
+	return v.SecurityGroups != nil && len(*v.SecurityGroups) > 0
+}
+
 // String expresses a constraints.Value in the language in which it was specified.
 func (v Value) String() string {
 	var strs []string
@@ -223,6 +233,10 @@ func (v Value) String() string {
 	if v.VirtType != nil {
 		strs = append(strs, "virt-type="+string(*v.VirtType))
 	}
+	if v.SecurityGroups != nil {
+		s := strings.Join(*v.SecurityGroups, ",")
+		strs = append(strs, "security-groups="+s)
+	}
 	return strings.Join(strs, " ")
 }
 
@@ -264,6 +278,12 @@ func (v Value) GoString() string {
 	if v.VirtType != nil {
 		values = append(values, fmt.Sprintf("VirtType: %q", *v.VirtType))
 	}
+	if v.SecurityGroups != nil && *v.SecurityGroups != nil {
+		values = append(values, fmt.Sprintf("SecurityGroups: %q", *v.SecurityGroups))
+	} else if v.SecurityGroups != nil {
+		values = append(values, "SecurityGroups: (*[]string)(nil)")
+	}
+
 	return fmt.Sprintf("{%s}", strings.Join(values, ", "))
 }
 
@@ -420,6 +440,8 @@ func (v *Value) setRaw(name, str string) error {
 		err = v.setSpaces(str)
 	case VirtType:
 		err = v.setVirtType(str)
+	case SecurityGroups:
+		err = v.setSecurityGroups(str)
 	default:
 		return errors.Errorf("unknown constraint %q", name)
 	}
@@ -483,6 +505,16 @@ func (v *Value) UnmarshalYAML(unmarshal func(interface{}) error) error {
 			}
 		case VirtType:
 			v.VirtType = &vstr
+		case SecurityGroups:
+			var securityGroups *[]string
+			securityGroups, err = parseYamlStrings("securityGroups", val)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = v.validateSecurityGroups(securityGroups)
+			if err == nil {
+				v.SecurityGroups = securityGroups
+			}
 		default:
 			return errors.Errorf("unknown constraint value: %v", k)
 		}
@@ -604,6 +636,31 @@ func (v *Value) setVirtType(str string) error {
 		return errors.Errorf("already set")
 	}
 	v.VirtType = &str
+	return nil
+}
+
+func (v *Value) setSecurityGroups(str string) error {
+	if v.SecurityGroups != nil {
+		return errors.Errorf("already set")
+	}
+	securityGroups := parseCommaDelimited(str)
+	if err := v.validateSecurityGroups(securityGroups); err != nil {
+		return err
+	}
+	v.SecurityGroups = securityGroups
+	return nil
+}
+
+func (v *Value) validateSecurityGroups(securityGroups *[]string) error {
+	if securityGroups == nil {
+		return nil
+	}
+	for _, securityGroup := range *securityGroups {
+		// TODO(wpk) 2017-08-07
+		if !names.IsValidSpace(securityGroup) {
+			return errors.Errorf("%q is not a valid security group name", securityGroup)
+		}
+	}
 	return nil
 }
 
