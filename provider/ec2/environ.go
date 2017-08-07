@@ -497,7 +497,12 @@ func (e *environ) StartInstance(args environs.StartInstanceParams) (_ *environs.
 		apiPort = args.InstanceConfig.APIInfo.Ports()[0]
 	}
 	callback(status.Allocating, "Setting up groups", nil)
-	groups, err := e.setUpGroups(args.ControllerUUID, args.InstanceConfig.MachineId, apiPort)
+	var groups []ec2.SecurityGroup
+	if args.Constraints.HasSecurityGroups() {
+		groups, err = e.setUpManualGroups(args.ControllerUUID, *args.Constraints.SecurityGroups)
+	} else {
+		groups, err = e.setUpGroups(args.ControllerUUID, args.InstanceConfig.MachineId, apiPort)
+	}
 
 	if err != nil {
 		return nil, errors.Annotate(err, "cannot set up groups")
@@ -1501,6 +1506,10 @@ func (e *environ) deleteSecurityGroupsForInstances(ids []instance.Id) {
 		if deletable.Name == jujuGroup {
 			continue
 		}
+		// We only delete internal groups
+		if !strings.HasPrefix(deletable.Name, jujuGroup) {
+			continue
+		}
 		if err := deleteSecurityGroupInsistently(e.ec2, deletable, clock.WallClock); err != nil {
 			// In ideal world, we would err out here.
 			// However:
@@ -1621,6 +1630,36 @@ func (e *environ) setUpGroups(controllerUUID, machineId string, apiPort int) ([]
 		return nil, err
 	}
 	return []ec2.SecurityGroup{jujuGroup, machineGroup}, nil
+}
+
+func (e *environ) setUpManualGroups(controllerUUID string, groups []string) ([]ec2.SecurityGroup, error) {
+	rvGroups := make([]ec2.SecurityGroup, len(groups)+1)
+	// In this scenario jujuGroup is used only to identify machines
+	// in the particular model, it has no rules.
+	jujuGroup, err := e.ensureGroup(controllerUUID, e.jujuGroupName(), nil)
+
+	if err != nil {
+		return nil, err
+	}
+	rvGroups[0] = jujuGroup
+
+	for i, name := range groups {
+		resp, err := e.securityGroupsByNameOrID(name)
+		if err != nil {
+			err = errors.Annotatef(err, "fetching security group %q", name)
+			return nil, err
+		}
+		if len(resp.Groups) == 0 {
+			return nil, errors.NotFoundf("security group %q", name)
+		}
+		info := resp.Groups[0]
+		// It's possible that the old group has the wrong
+		// description here, but if it does it's probably due
+		// to something deliberately playing games with juju,
+		// so we ignore it.
+		rvGroups[i+1] = info.SecurityGroup
+	}
+	return rvGroups, nil
 }
 
 // zeroGroup holds the zero security group.
