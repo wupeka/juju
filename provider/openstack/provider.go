@@ -653,6 +653,7 @@ func (e *Environ) Create(environs.CreateParams) error {
 	if err := authenticateClient(e.client()); err != nil {
 		return err
 	}
+
 	// TODO(axw) 2016-08-04 #1609643
 	// Create global security group(s) here.
 	return nil
@@ -1001,6 +1002,25 @@ func (e *Environ) StartInstance(args environs.StartInstanceParams) (_ *environs.
 		networks = append(networks, nova.ServerNetworks{NetworkId: networkId})
 	}
 
+	machineName := resourceName(
+		e.namespace,
+		e.name,
+		args.InstanceConfig.MachineId,
+	)
+
+	if e.ecfg().useOpenstackGBP() {
+		client := e.neutron()
+		ptArg := neutron.PolicyTargetV2{
+			Name:                fmt.Sprintf("juju-policytarget-%s", machineName),
+			PolicyTargetGroupId: e.ecfg().policyTargetGroup(),
+		}
+		pt, err := client.CreatePolicyTargetV2(ptArg)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		networks = append(networks, nova.ServerNetworks{PortId: pt.PortId})
+	}
+
 	// For BUG 1680787: openstack: add support for neutron networks where port
 	// security is disabled.
 	// If any network specified for instance boot has PortSecurityEnabled equals
@@ -1009,6 +1029,9 @@ func (e *Environ) StartInstance(args environs.StartInstanceParams) (_ *environs.
 	if len(networks) > 0 && e.supportsNeutron() {
 		client := e.neutron()
 		for _, n := range networks {
+			if n.NetworkId == "" {
+				continue
+			}
 			net, err := client.GetNetworkV2(n.NetworkId)
 			if err != nil {
 				return nil, common.ZoneIndependentError(err)
@@ -1040,12 +1063,6 @@ func (e *Environ) StartInstance(args environs.StartInstanceParams) (_ *environs.
 			novaGroupNames[i].Name = name
 		}
 	}
-
-	machineName := resourceName(
-		e.namespace,
-		e.name,
-		args.InstanceConfig.MachineId,
-	)
 
 	waitForActiveServerDetails := func(
 		client *nova.Client,
