@@ -275,12 +275,15 @@ var fromDataTests = []struct {
 		Requires: []string{"deploy-1"},
 	}},
 }, {
-	about: "machines and units placement",
+	about: "machines and units placement, with bindings",
 	content: `
         services:
             django:
                 charm: cs:trusty/django-42
                 num_units: 2
+                bindings:
+                    "": foo
+                    http: bar
                 to:
                     - 1
                     - lxc:2
@@ -312,10 +315,11 @@ var fromDataTests = []struct {
 		Id:     "deploy-1",
 		Method: "deploy",
 		Params: bundlechanges.AddApplicationParams{
-			Charm:       "$addCharm-0",
-			Application: "django",
-			Series:      "trusty",
-			Constraints: "cpu-cores=4 cpu-power=42",
+			Charm:            "$addCharm-0",
+			Application:      "django",
+			Series:           "trusty",
+			Constraints:      "cpu-cores=4 cpu-power=42",
+			EndpointBindings: map[string]string{"": "foo", "http": "bar"},
 		},
 		GUIArgs: []interface{}{
 			"$addCharm-0",
@@ -324,7 +328,7 @@ var fromDataTests = []struct {
 			map[string]interface{}{},
 			"cpu-cores=4 cpu-power=42",
 			map[string]string{},
-			map[string]string{},
+			map[string]string{"": "foo", "http": "bar"},
 			map[string]int{},
 		},
 		Requires: []string{"addCharm-0"},
@@ -396,14 +400,14 @@ var fromDataTests = []struct {
 			ContainerType: "lxc",
 			Series:        "trusty",
 			ParentId:      "$addMachines-6",
-			Constraints:   "cpu-cores=4 cpu-power=42",
+			Constraints:   "spaces=bar,foo cpu-cores=4 cpu-power=42",
 		},
 		GUIArgs: []interface{}{
 			bundlechanges.AddMachineOptions{
 				ContainerType: "lxc",
 				Series:        "trusty",
 				ParentId:      "$addMachines-6",
-				Constraints:   "cpu-cores=4 cpu-power=42",
+				Constraints:   "spaces=bar,foo cpu-cores=4 cpu-power=42",
 			},
 		},
 		Requires: []string{"addMachines-6"},
@@ -1380,6 +1384,110 @@ var fromDataTests = []struct {
 	}},
 }, {
 	about: "application with non-default series and placements ",
+	content: `
+series: trusty
+services:
+    gui3:
+        charm: cs:precise/juju-gui
+        num_units: 2
+        to:
+            - new
+            - lxc:1
+machines:
+    1:
+   `,
+	expected: []record{{
+		Id:     "addCharm-0",
+		Method: "addCharm",
+		Params: bundlechanges.AddCharmParams{
+			Charm:  "cs:precise/juju-gui",
+			Series: "precise",
+		},
+		GUIArgs: []interface{}{"cs:precise/juju-gui", "precise"},
+	}, {
+		Id:     "deploy-1",
+		Method: "deploy",
+		Params: bundlechanges.AddApplicationParams{
+			Charm:       "$addCharm-0",
+			Application: "gui3",
+			Series:      "precise",
+		},
+		GUIArgs: []interface{}{
+			"$addCharm-0",
+			"precise",
+			"gui3",
+			map[string]interface{}{},
+			"",
+			map[string]string{},
+			map[string]string{},
+			map[string]int{},
+		},
+		Requires: []string{"addCharm-0"},
+	}, {
+		Id:     "addMachines-2",
+		Method: "addMachines",
+		Params: bundlechanges.AddMachineParams{
+			Series: "trusty",
+		},
+		GUIArgs: []interface{}{
+			bundlechanges.AddMachineOptions{
+				Series: "trusty",
+			},
+		},
+	}, {
+		Id:     "addMachines-5",
+		Method: "addMachines",
+		Params: bundlechanges.AddMachineParams{
+			Series: "precise",
+		},
+		GUIArgs: []interface{}{
+			bundlechanges.AddMachineOptions{
+				Series: "precise",
+			},
+		},
+	}, {
+		Id:       "addMachines-6",
+		Method:   "addMachines",
+		Requires: []string{"addMachines-2"},
+		Params: bundlechanges.AddMachineParams{
+			ContainerType: "lxc",
+			ParentId:      "$addMachines-2",
+			Series:        "precise",
+		},
+		GUIArgs: []interface{}{
+			bundlechanges.AddMachineOptions{
+				ContainerType: "lxc",
+				ParentId:      "$addMachines-2",
+				Series:        "precise",
+			},
+		},
+	}, {
+		Id:       "addUnit-3",
+		Method:   "addUnit",
+		Requires: []string{"deploy-1", "addMachines-5"},
+		Params: bundlechanges.AddUnitParams{
+			Application: "$deploy-1",
+			To:          "$addMachines-5",
+		},
+		GUIArgs: []interface{}{
+			"$deploy-1",
+			"$addMachines-5",
+		},
+	}, {
+		Id:       "addUnit-4",
+		Method:   "addUnit",
+		Requires: []string{"deploy-1", "addMachines-6", "addUnit-3"},
+		Params: bundlechanges.AddUnitParams{
+			Application: "$deploy-1",
+			To:          "$addMachines-6",
+		},
+		GUIArgs: []interface{}{
+			"$deploy-1",
+			"$addMachines-6",
+		},
+	}},
+}, {
+	about: "endpoint binding moves into constraint ",
 	content: `
 series: trusty
 services:
