@@ -90,6 +90,29 @@ func (p *BridgePolicy) inferContainerSpaces(m Machine, containerId, defaultSpace
 			"to bridge all devices")
 		return set.NewStrings(""), nil
 	}
+
+	devices, err := m.LinkLayerDevicesForSpaces(hostSpaces.Values())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defaultSpaces := set.NewStrings()
+	for space, devicesForSpace := range devices {
+		for _, device := range devicesForSpace {
+			addresses, err := device.Addresses()
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			for _, address := range addresses {
+				if address.IsDefaultGateway() {
+					defaultSpaces.Add(space)
+				}
+			}
+		}
+	}
+	if !defaultSpaces.IsEmpty() {
+		return defaultSpaces, nil
+	}
+
 	return nil, errors.Errorf("no obvious space for container %q, host machine has spaces: %s",
 		containerId, network.QuoteSpaceSet(hostSpaces))
 }
