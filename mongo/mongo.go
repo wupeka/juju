@@ -37,6 +37,9 @@ var (
 	// mongod.
 	JujuMongod24Path = "/usr/lib/juju/bin/mongod"
 
+	// MongodSystemPath is path to mongod from Ubuntu package.
+	MongodSystemPath = "/usr/bin/mongod"
+
 	// This is NUMACTL package name for apt-get
 	numaCtlPkg = "numactl"
 )
@@ -193,6 +196,12 @@ var (
 		Patch:         "",
 		StorageEngine: WiredTiger,
 	}
+	// Mongo34System represents mongodb from Ubuntu packages with wiredTiger storage, we currently support v3.4.
+	Mongo34System = Version{Major: 3,
+		Minor:         4,
+		Patch:         "",
+		StorageEngine: WiredTiger,
+	}
 	// MongoUpgrade represents a sepacial case where an upgrade is in
 	// progress.
 	MongoUpgrade = Version{Major: 0,
@@ -207,25 +216,63 @@ var (
 // and fall back to the original mongo 2.4.
 func InstalledVersion() Version {
 	mgoVersion := Mongo24
-	if binariesAvailable(Mongo32wt, os.Stat) {
+	if binariesAvailable(Mongo32wt, os.Stat, false) {
 		mgoVersion = Mongo32wt
 	}
+	if binariesAvailable(Mongo34System, os.Stat, true) {
+		mgoVersion = Mongo34System
+	}
+	fmt.Printf("BINARIES %v\n", mgoVersion)
 	return mgoVersion
+}
+
+func getMongoVersion(cmd string) (major, minor, patch int, ok bool) {
+	cmd, err := utils.RunCommand(cmd, "--version")
+	for _, line := range strings.Split(cmd, "\n") {
+		split := strings.Split(line, " ")
+		if len(split) == 3 && split[0] == "db" && split[1] == "version" && len(split[2]) > 1 {
+			components := strings.Split(split[2][1:], ".")
+			if len(components) != 3 {
+				return 0, 0, 0, false
+			}
+			major, err = strconv.Atoi(components[0])
+			if err != nil {
+				return 0, 0, 0, false
+			}
+			minor, err = strconv.Atoi(components[1])
+			if err != nil {
+				return 0, 0, 0, false
+			}
+			patch, err = strconv.Atoi(components[2])
+			if err != nil {
+				return 0, 0, 0, false
+			}
+			return major, minor, patch, true
+		}
+	}
+	return 0, 0, 0, false
 }
 
 // binariesAvailable returns true if the binaries for the
 // given Version of mongo are available.
-func binariesAvailable(v Version, statFunc func(string) (os.FileInfo, error)) bool {
+func binariesAvailable(v Version, statFunc func(string) (os.FileInfo, error), verifyVersion bool) bool {
 	var path string
 	switch v {
 	case Mongo24:
 		// 2.4 has a fixed path.
 		path = JujuMongod24Path
+	case Mongo34System:
+		path = MongodSystemPath
 	default:
 		path = JujuMongodPath(v)
 	}
 	if _, err := statFunc(path); err == nil {
-		return true
+		if verifyVersion {
+			major, minor, _, ok := getMongoVersion(path)
+			return (ok && major == v.Major && minor == v.Minor)
+		} else {
+			return true
+		}
 	}
 	return false
 }
@@ -325,7 +372,8 @@ func GenerateSharedSecret() (string, error) {
 // machine. If the juju-bundled version of mongo exists, it will return that
 // path, otherwise it will return the command to run mongod from the path.
 func Path(version Version) (string, error) {
-	return mongoPath(version, os.Stat, exec.LookPath)
+	return "/usr/bin/mongod", nil
+	//	return mongoPath(version, os.Stat, exec.LookPath)
 }
 
 func mongoPath(version Version, stat func(string) (os.FileInfo, error), lookPath func(string) (string, error)) (string, error) {
@@ -719,6 +767,8 @@ func packagesForSeries(series string) ([]string, []string) {
 		return []string{"mongodb-server"}, []string{}
 	case "trusty", "wily", "xenial":
 		return []string{JujuMongoPackage, JujuMongoToolsPackage}, []string{"juju-mongodb"}
+	case "artful", "bionic":
+		return []string{"mongodb", "mongodb-clients", "mongodb-server"}, []string{}
 	default:
 		// y and onwards
 		return []string{JujuMongoPackage, JujuMongoToolsPackage}, []string{}

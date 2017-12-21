@@ -15,6 +15,7 @@ import (
 	"github.com/juju/juju/controller"
 	"github.com/juju/juju/feature"
 	"github.com/juju/juju/mongo"
+	"regexp"
 )
 
 type SessionCloser func()
@@ -198,12 +199,14 @@ func (schema collectionSchema) Create(
 	return nil
 }
 
+var alreadyExistsRE = regexp.MustCompile("a collection '.*' already exists")
+
 // createCollection swallows collection-already-exists errors.
 func createCollection(raw *mgo.Collection, spec *mgo.CollectionInfo) error {
 	err := raw.Create(spec)
 	// The lack of error code for this error was reported upstream:
 	//     https://jira.mongodb.org/browse/SERVER-6992
-	if err == nil || err.Error() == "collection already exists" {
+	if err == nil || err.Error() == "collection already exists" || alreadyExistsRE.MatchString(err.Error()) {
 		return nil
 	}
 	return err

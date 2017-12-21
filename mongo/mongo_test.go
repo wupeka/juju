@@ -168,6 +168,7 @@ func (s *MongoSuite) TestJujuMongodPath(c *gc.C) {
 
 func (s *MongoSuite) TestDefaultMongodPath(c *gc.C) {
 	s.PatchValue(&mongo.JujuMongod24Path, "/not/going/to/exist/mongod")
+	s.PatchValue(&mongo.MongodSystemPath, "/this/wont/exist/either/mongod")
 	s.PatchEnvPathPrepend(filepath.Dir(s.mongodPath))
 
 	c.Logf("mongo version is %q", s.mongodVersion)

@@ -100,7 +100,7 @@ func assertStat(c *gc.C, v Version, result bool, stat error, called string) {
 		return fakeFileInfo{}, stat
 	}
 
-	b := binariesAvailable(v, statFunc)
+	b := binariesAvailable(v, statFunc, false)
 	c.Assert(b, gc.Equals, result)
 	c.Assert(statArg, gc.Equals, called)
 }
