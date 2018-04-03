@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/juju/errors"
+	"github.com/lxc/lxd/client"
+	"github.com/lxc/lxd/shared/api"
 
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
@@ -31,10 +33,10 @@ type environ struct {
 	cloud    environs.CloudSpec
 	provider *environProvider
 
-	name string
-	uuid string
-	raw  *rawProvider
-	base baseProvider
+	name   string
+	uuid   string
+	client lxd.ContainerServer
+	base   baseProvider
 
 	// namespace is used to create the machine and device hostnames.
 	namespace instance.Namespace
@@ -62,7 +64,7 @@ func newEnviron(
 		return nil, errors.Trace(err)
 	}
 
-	raw, err := newRawProvider(spec, local)
+	client, err := connectLXD(spec, local)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -71,7 +73,7 @@ func newEnviron(
 		cloud:     spec,
 		name:      ecfg.Name(),
 		uuid:      ecfg.UUID(),
-		raw:       raw,
+		client:    client,
 		namespace: namespace,
 		ecfg:      ecfg,
 	}
@@ -91,16 +93,17 @@ var defaultProfileConfig = map[string]string{
 }
 
 func (env *environ) initProfile() error {
-	hasProfile, err := env.raw.HasProfile(env.profileName())
-	if err != nil {
-		return errors.Trace(err)
+	_, _, err := env.client.GetProfile(env.profileName())
+	if err != nil && errors.IsNotFound(err) {
+		post := api.ProfilesPost{
+			Name: env.profileName(),
+			ProfilePut: api.ProfilePut{
+				Config: defaultProfileConfig,
+			},
+		}
+		return env.client.CreateProfile(post)
 	}
-
-	if hasProfile {
-		return nil
-	}
-
-	return env.raw.CreateProfile(env.profileName(), defaultProfileConfig)
+	return errors.Trace(err)
 }
 
 func (env *environ) profileName() string {
@@ -204,9 +207,10 @@ func (env *environ) destroyHostedModelResources(controllerUUID string) error {
 		names = append(names, string(inst.Id()))
 	}
 	if len(names) > 0 {
-		if err := env.raw.RemoveInstances(prefix, names...); err != nil {
-			return errors.Annotate(err, "removing hosted model instances")
-		}
+		// TODO FIXME XXX
+		//		if err := env.raw.RemoveInstances(prefix, names...); err != nil {
+		//			return errors.Annotate(err, "removing hosted model instances")
+		//		}
 	}
 	return nil
 }

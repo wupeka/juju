@@ -13,6 +13,7 @@ import (
 	"github.com/juju/jsonschema"
 	"github.com/juju/schema"
 	"github.com/juju/utils"
+	"github.com/lxc/lxd/client"
 	"github.com/lxc/lxd/shared"
 	"gopkg.in/juju/environschema.v1"
 
@@ -20,7 +21,6 @@ import (
 	"github.com/juju/juju/environs"
 	"github.com/juju/juju/environs/config"
 	"github.com/juju/juju/provider/lxd/lxdnames"
-	"github.com/juju/juju/tools/lxdclient"
 )
 
 type environProvider struct {
@@ -152,7 +152,7 @@ func (p *environProvider) FinalizeCloud(
 }
 
 func (p *environProvider) getLocalHostAddress(ctx environs.FinalizeCloudContext) (string, error) {
-	raw, err := p.newLocalRawProvider()
+	client, err := lxd.newLocalRawProvider()
 	if err != nil {
 		return "", errors.Trace(err)
 	}

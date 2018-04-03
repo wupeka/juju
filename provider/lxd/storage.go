@@ -18,7 +18,6 @@ import (
 	"github.com/juju/juju/environs/tags"
 	"github.com/juju/juju/instance"
 	"github.com/juju/juju/storage"
-	"github.com/juju/juju/tools/lxdclient"
 )
 
 const (

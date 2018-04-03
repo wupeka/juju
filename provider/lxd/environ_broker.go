@@ -6,10 +6,13 @@
 package lxd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/juju/errors"
 	"github.com/juju/utils/arch"
+	"github.com/lxc/lxd/client"
+	"github.com/lxc/lxd/shared/api"
 
 	"github.com/juju/juju/cloudconfig/cloudinit"
 	"github.com/juju/juju/cloudconfig/instancecfg"
@@ -20,6 +23,7 @@ import (
 	"github.com/juju/juju/status"
 	"github.com/juju/juju/tools"
 	"github.com/juju/juju/tools/lxdclient"
+	"github.com/juju/juju/tools/lxdtools"
 )
 
 // MaintainInstance is specified in the InstanceBroker interface.
@@ -41,7 +45,7 @@ func (env *environ) StartInstance(args environs.StartInstanceParams) (*environs.
 
 	// TODO(ericsnow) Handle constraints?
 
-	raw, err := env.newRawInstance(args, arch)
+	lxdinstance, err := env.newRawInstance(args, arch)
 	if err != nil {
 		if args.StatusCallback != nil {
 			args.StatusCallback(status.ProvisioningError, err.Error(), nil)
@@ -49,7 +53,7 @@ func (env *environ) StartInstance(args environs.StartInstanceParams) (*environs.
 		return nil, errors.Trace(err)
 	}
 	logger.Infof("started instance %q", raw.Name)
-	inst := newInstance(raw, env)
+	inst := newInstance(lxdinstance, env)
 
 	// Build the result.
 	hwc := env.getHardwareCharacteristics(args, inst)
@@ -78,12 +82,12 @@ func (env *environ) finishInstanceConfig(args environs.StartInstanceParams) (str
 	return arch, nil
 }
 
-func (env *environ) getImageSources() ([]lxdclient.Remote, error) {
+func (env *environ) getImageSources() ([]lxdtools.RemoteServer, error) {
 	metadataSources, err := environs.ImageMetadataSources(env)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	remotes := make([]lxdclient.Remote, 0)
+	var remotes []lxdtools.RemoteServer
 	for _, source := range metadataSources {
 		url, err := source.URL("")
 		if err != nil {
@@ -106,12 +110,10 @@ func (env *environ) getImageSources() ([]lxdclient.Remote, error) {
 			url = "https://" + url
 			logger.Debugf("LXD requires https://, using: %s", url)
 		}
-		remotes = append(remotes, lxdclient.Remote{
-			Name:          source.Description(),
-			Host:          url,
-			Protocol:      lxdclient.SimplestreamsProtocol,
-			Cert:          nil,
-			ServerPEMCert: "",
+		remotes = append(remotes, lxdtools.RemoteServer{
+			Name:     source.Description(),
+			Host:     url,
+			Protocol: lxdtools.SimplestreamsProtocol,
 		})
 	}
 	return remotes, nil
@@ -123,7 +125,7 @@ func (env *environ) getImageSources() ([]lxdclient.Remote, error) {
 func (env *environ) newRawInstance(
 	args environs.StartInstanceParams,
 	arch string,
-) (*lxdclient.Instance, error) {
+) (*lxdInstance, error) {
 	hostname, err := env.namespace.Hostname(args.InstanceConfig.MachineId)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -161,11 +163,8 @@ func (env *environ) newRawInstance(
 	}
 	defer cleanupCallback()
 
-	imageCallback := func(copyProgress string) {
-		statusCallback(status.Allocating, copyProgress)
-	}
 	series := args.InstanceConfig.Series
-	image, err := env.raw.EnsureImageExists(series, arch, imageSources, imageCallback)
+	imageServer, image, target, err := lxdtools.GetImageWithServer(env.client, series, arch, imageSources)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -181,37 +180,57 @@ func (env *environ) newRawInstance(
 		return nil, errors.Trace(err)
 	}
 
-	// TODO(ericsnow) Use the env ID for the network name (instead of default)?
-	// TODO(ericsnow) Make the network name configurable?
-	// TODO(ericsnow) Support multiple networks?
-	// TODO(ericsnow) Use a different net interface name? Configurable?
-	instSpec := lxdclient.InstanceSpec{
-		Name:  hostname,
-		Image: image,
-		//Type:              spec.InstanceType.Name,
-		//Disks:             getDisks(spec, args.Constraints),
-		//NetworkInterfaces: []string{"ExternalNAT"},
-		Metadata: metadata,
-		Profiles: []string{
-			//TODO(wwitzel3) allow the user to specify lxc profiles to apply. This allows the
-			// user to setup any custom devices order config settings for their environment.
-			// Also we must ensure that a device with the parent: lxcbr0 exists in at least
-			// one of the profiles.
-			"default",
-			env.profileName(),
-		},
-		// Network is omitted (left empty).
-	}
-
-	logger.Infof("starting instance %q (image %q)...", instSpec.Name, instSpec.Image)
+	logger.Infof("starting instance %q (image %q)...", hostname, target)
 
 	statusCallback(status.Allocating, "preparing image")
-	inst, err := env.raw.AddInstance(instSpec)
+	profiles := []string{"default", env.profileName()}
+/*	nics := make(map[string]map[string]string, len(args.))
+	for name, device := range spec.Devices {
+		nic := make(map[string]string, len(device))
+		for key, value := range device {
+			nic[key] = value
+		}
+		nics[name] = nic
+	}
+*/
+	spec := api.ContainersPost{
+		Name: hostname,
+		ContainerPut: api.ContainerPut{
+			Profiles: profiles,
+			Devices:   make(map[string]map[string]string),
+			Config:    metadata,
+		},
+	}
+	op, err := env.client.CreateContainerFromImage(imageServer, *image, spec)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	progress := func(op api.Operation) {
+		if op.Metadata == nil {
+			return
+		}
+		for _, key := range []string{"fs_progress", "download_progress"} {
+			value, ok := op.Metadata[key]
+			if ok {
+				statusCallback(status.Provisioning, fmt.Sprintf("Retrieving image: %s", value.(string)))
+				return
+			}
+		}
+	}
+	_, err = op.AddHandler(progress)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	op.Wait()
+	opInfo, err := op.GetTarget()
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	if opInfo.StatusCode != api.Success {
+		return "", fmt.Errorf("LXD error: %s", opInfo.Err)
+	}
 	statusCallback(status.Running, "container started")
-	return inst, nil
+	return , nil
 }
 
 // getMetadata builds the raw "user-defined" metadata for the new

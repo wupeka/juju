@@ -12,16 +12,33 @@ import (
 	"github.com/juju/juju/tools/lxdclient"
 )
 
+type lxdInstance struct {
+        // Name is the "name" of the instance.
+        Name string
+
+        // Status holds the status of the instance at a certain point in time.
+        Status string
+
+        // Hardware describes the instance's hardware characterstics.
+        Hardware InstanceHardware
+
+        // Metadata is the instance metadata.
+        Metadata map[string]string
+
+        // Devices is the instance's devices.
+        Devices map[string]map[string]string
+        
+}
 type environInstance struct {
-	raw *lxdclient.Instance
+	lxdInstance
 	env *environ
 }
 
 var _ instance.Instance = (*environInstance)(nil)
 
-func newInstance(raw *lxdclient.Instance, env *environ) *environInstance {
+func newInstance(instance lxdInstance, env *environ) *environInstance {
 	return &environInstance{
-		raw: raw,
+		lxdInstance: instance,
 		env: env,
 	}
 }
